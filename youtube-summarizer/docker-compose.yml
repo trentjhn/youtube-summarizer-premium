@@ -1,0 +1,85 @@
+# YouTube Video Summarizer - Docker Compose Configuration
+#
+# This docker-compose.yml file orchestrates the complete YouTube Video Summarizer
+# application stack including the web application and Redis cache.
+#
+# Services:
+# - web: Flask backend + React frontend
+# - redis: Redis cache for performance optimization
+#
+# Usage:
+# - Development: docker-compose up
+# - Production: docker-compose -f docker-compose.yml up -d
+
+version: '3.8'
+
+services:
+  # Main web application (Flask + React)
+  web:
+    build: .
+    container_name: youtube-summarizer-web
+    ports:
+      - "5000:5000"
+    environment:
+      # Flask configuration
+      - FLASK_ENV=production
+      - FLASK_APP=src/main.py
+      
+      # Redis connection (connects to redis service)
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      
+      # OpenAI API configuration (set these in your environment)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      
+      # Database configuration
+      - DATABASE_URL=sqlite:///src/database/app.db
+      
+    volumes:
+      # Persist database across container restarts
+      - ./data:/app/src/database
+      
+    depends_on:
+      - redis
+      
+    restart: unless-stopped
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis cache service
+  redis:
+    image: redis:7-alpine
+    container_name: youtube-summarizer-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      # Persist Redis data
+      - redis_data:/data
+    restart: unless-stopped
+    
+    # Redis configuration for production
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  # Named volume for Redis data persistence
+  redis_data:
+    driver: local
+
+networks:
+  default:
+    name: youtube-summarizer-network
+

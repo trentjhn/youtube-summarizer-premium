@@ -1,0 +1,41 @@
+blinker==1.7.0
+click==8.1.7
+Flask==3.0.0
+flask-cors==4.0.0
+Flask-SQLAlchemy==3.0.5
+itsdangerous==2.1.2
+Jinja2==3.1.2
+MarkupSafe==2.1.1
+SQLAlchemy==2.0.23
+typing_extensions==4.8.0
+Werkzeug==3.0.1
+
+# YouTube transcript extraction
+youtube-transcript-api==0.6.2
+requests==2.31.0
+beautifulsoup4==4.12.2
+yt-dlp>=2023.10.13
+
+# AI and OpenAI dependencies
+openai>=1.10.0,<2.0.0
+langchain==0.1.0
+langchain-openai==0.0.5
+
+# Caching with Redis
+redis==5.0.1
+
+# Testing
+pytest==7.4.3
+pytest-flask==1.3.0
+pytest-mock==3.12.0
+
+# Browser automation
+selenium==4.15.2
+
+# Rate limiting
+Flask-Limiter==3.5.0
+
+# WebSocket support for real-time progress
+Flask-SocketIO==5.3.4
+python-socketio==5.9.0
+python-engineio==4.7.1
