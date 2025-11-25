@@ -642,3 +642,257 @@
   }
 }
 
+/* ============================================
+   IN-DEPTH MODE SECTIONS
+   ============================================ */
+
+.indepth-sections {
+  margin-top: 3rem;
+  padding-top: 2rem;
+}
+
+.indepth-divider {
+  text-align: center;
+  margin-bottom: 2rem;
+  position: relative;
+}
+
+.indepth-divider::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #e0e0e0, transparent);
+}
+
+.indepth-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  color: white;
+  padding: 0.5rem 1.5rem;
+  border-radius: 2rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+/* Section Headers */
+.section-header {
+  margin-bottom: 1.5rem;
+}
+
+.section-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.section-icon {
+  font-size: 1.75rem;
+}
+
+.section-description {
+  color: #666;
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+/* Detailed Analysis Section */
+.detailed-analysis-section {
+  margin-bottom: 3rem;
+}
+
+.analysis-items {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.analysis-item {
+  background: white;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border-left: 4px solid #3b82f6;
+}
+
+.analysis-topic {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.topic-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  background: #3b82f6;
+  color: white;
+  border-radius: 50%;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.analysis-content {
+  color: #333;
+  line-height: 1.7;
+  font-size: 1rem;
+}
+
+/* Key Quotes Section */
+.key-quotes-section {
+  margin-bottom: 3rem;
+}
+
+.quotes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.quote-item {
+  background: linear-gradient(135deg, #f8f9fa, #ffffff);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border-left: 4px solid #8b5cf6;
+  position: relative;
+}
+
+.quote-mark {
+  position: absolute;
+  top: 0.5rem;
+  left: 1rem;
+  font-size: 4rem;
+  color: #e0e0e0;
+  font-family: Georgia, serif;
+  line-height: 1;
+}
+
+.quote-text {
+  font-size: 1.125rem;
+  font-style: italic;
+  color: #1a1a1a;
+  line-height: 1.7;
+  margin: 0 0 1rem 0;
+  padding-left: 2rem;
+  position: relative;
+  z-index: 1;
+}
+
+.quote-attribution {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-left: 2rem;
+}
+
+.quote-speaker {
+  font-weight: 600;
+  color: #8b5cf6;
+  font-size: 0.95rem;
+}
+
+.quote-context {
+  color: #666;
+  font-size: 0.875rem;
+  font-style: italic;
+}
+
+/* Arguments Section */
+.arguments-section {
+  margin-bottom: 3rem;
+}
+
+.arguments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.argument-item {
+  background: white;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  display: flex;
+  gap: 1rem;
+}
+
+.argument-number {
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.125rem;
+}
+
+.argument-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.argument-claim,
+.argument-evidence,
+.argument-counterpoint {
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+}
+
+.argument-claim {
+  background: #eff6ff;
+  border-left: 3px solid #3b82f6;
+}
+
+.argument-evidence {
+  background: #f0fdf4;
+  border-left: 3px solid #10b981;
+}
+
+.argument-counterpoint {
+  background: #fef3c7;
+  border-left: 3px solid #f59e0b;
+}
+
+.claim-label,
+.evidence-label,
+.counterpoint-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+  color: #666;
+}
+
+.claim-text,
+.evidence-text,
+.counterpoint-text {
+  margin: 0;
+  color: #1a1a1a;
+  line-height: 1.6;
+  font-size: 0.95rem;
+}
+

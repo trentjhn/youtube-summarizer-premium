@@ -53,10 +53,17 @@ def process_video():
     Process a YouTube video URL and generate comprehensive summary.
 
     Endpoint: POST /api/process-video
-    Request body: {"video_url": "https://youtube.com/watch?v=..."}
+    Request body: {
+        "video_url": "https://youtube.com/watch?v=...",
+        "mode": "quick" | "indepth" (optional, default: "quick")
+    }
+
+    Modes:
+        - "quick": Fast, concise summary (5 components, 60-min chunking threshold)
+        - "indepth": Comprehensive analysis (8 components, 30-min chunking threshold)
 
     Returns:
-        JSON with video data including title, transcript, and summary
+        JSON with video data including title, transcript, and mode-specific summary
     """
     try:
         data = request.get_json()
@@ -67,7 +74,14 @@ def process_video():
         if not video_url:
             return jsonify({'error': 'video_url is required'}), 400
 
-        logger.info(f"Processing video URL: {video_url}")
+        # Get mode parameter (default to "quick")
+        mode = data.get('mode', 'quick')
+
+        # Validate mode
+        if mode not in ['quick', 'indepth']:
+            return jsonify({'error': 'mode must be either "quick" or "indepth"'}), 400
+
+        logger.info(f"Processing video URL: {video_url} (mode: {mode})")
 
         # Extract video ID from URL
         try:
@@ -76,15 +90,16 @@ def process_video():
             logger.warning(f"Invalid URL provided: {video_url}")
             raise InvalidURLError(f'Invalid YouTube URL: {str(e)}')
 
-        # Check if video already exists and is completed
-        existing_video = Video.query.filter_by(video_id=video_id).first()
+        # Check if video already exists for this specific mode (mode-aware caching)
+        # This allows the same video to have independent caches for Quick and In-Depth modes
+        existing_video = Video.query.filter_by(video_id=video_id, mode=mode).first()
         if existing_video and existing_video.status == 'completed':
-            logger.info(f"Video {video_id} already processed, returning cached result")
+            logger.info(f"Video {video_id} already processed in {mode} mode, returning cached result")
             return jsonify(existing_video.to_dict())
 
         # Create or update video record
         if not existing_video:
-            video = Video(video_id=video_id, url=video_url, title="Processing...", status='processing')
+            video = Video(video_id=video_id, url=video_url, title="Processing...", status='processing', mode=mode)
             db.session.add(video)
         else:
             video = existing_video
@@ -108,14 +123,14 @@ def process_video():
             logger.info(f"DEBUG: Transcript extraction method: {transcript_data.get('method', 'unknown')}")
             logger.info(f"DEBUG: Is auto-generated: {transcript_data.get('is_auto_generated', 'unknown')}")
 
-            # Generate AI summary
-            logger.info(f"Generating AI summary for '{video.title}'")
-            summary = ai_summarizer.generate_comprehensive_summary(video.transcript, video.title)
+            # Generate AI summary with mode-specific configuration
+            logger.info(f"Generating {mode} AI summary for '{video.title}'")
+            summary = ai_summarizer.generate_comprehensive_summary(video.transcript, video.title, mode)
             video.summary = summary
             video.status = 'completed'
 
             db.session.commit()
-            logger.info(f"Video {video_id} processed successfully")
+            logger.info(f"Video {video_id} processed successfully with {mode} mode")
             return jsonify(video.to_dict())
 
         except TranscriptExtractionError as e:

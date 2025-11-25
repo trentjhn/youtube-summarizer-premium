@@ -1,0 +1,54 @@
+I need you to implement critical improvements to the YouTube Summarizer's AI summarization quality and add support for long videos (30-60 minutes).
+
+**CURRENT PROBLEMS:**
+
+1. **Verbosity:** Summaries are too wordy and don't get straight to the point
+2. **Context Loss:** When speakers quote others or reference sources, the summary loses attribution and context
+3. **Over-Sanitization:** The AI is filtering/softening the speaker's actual message, preventing the core truth from coming through
+4. **Long Video Degradation:** Videos longer than 45 minutes produce poor-quality summaries
+
+**SOLUTION:**
+
+I'm providing you with a comprehensive implementation guide that includes:
+
+1. **Enhanced AI Prompt (v3.0):** A completely rewritten prompt with explicit instructions for conciseness, context preservation, faithful representation, and tone matching
+2. **Adaptive Summarization:** Intelligent chunking for videos >45 minutes to maintain quality
+3. **Testing Strategy:** Comprehensive validation with diverse video types
+
+**CRITICAL REQUIREMENTS:**
+
+1. **Follow the implementation guide exactly** - The prompt has been carefully engineered
+2. **Implement adaptive chunking** - Detect video duration and use appropriate strategy
+3. **Maintain all safety guardrails** - Graceful degradation, error handling, fallbacks
+4. **Update cache versioning** - Increment to v3.0 to invalidate old summaries
+5. **Test thoroughly** - Use the 5 test cases provided in the guide
+
+**FILES PROVIDED:**
+
+1. `quality_improvement_implementation_guide.md` - Complete implementation instructions
+2. `improved_summarization_strategy.md` - Strategy overview and rationale
+3. `long_video_and_quality_analysis.md` - Problem analysis and solution design
+
+**WHAT I EXPECT:**
+
+- Updated `ai_summarizer.py` with:
+  * New `COMPREHENSIVE_SUMMARY_PROMPT_V3`
+  * `PROMPT_VERSION = "v3.0"`
+  * `_estimate_duration_minutes()` method
+  * Updated `generate_summary()` with adaptive logic
+  * `_summarize_single_pass()` method
+  * `_summarize_in_chunks()` method
+  * `_split_transcript()` method
+  * `_summarize_chunk()` method
+- Confirmation that all error handling and fallbacks are in place
+- Confirmation that the implementation matches the guide exactly
+
+**START BY:**
+
+1. Reading the `quality_improvement_implementation_guide.md` completely
+2. Understanding the problem and solution
+3. Implementing Phase 1 (new prompt)
+4. Implementing Phase 2 (adaptive summarization)
+5. Verifying all changes work correctly
+
+Please confirm you've reviewed the documentation and are ready to proceed with the implementation.

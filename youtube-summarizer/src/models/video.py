@@ -38,9 +38,14 @@ class Video(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     
     # YouTube video ID extracted from URL (e.g., "dQw4w9WgXcQ")
-    # Unique constraint prevents duplicate processing of same video
     # Max length 20 chars covers current YouTube ID format with room for growth
-    video_id = db.Column(db.String(20), unique=True, nullable=False)
+    # Note: Uniqueness is enforced by composite constraint with mode (see below)
+    video_id = db.Column(db.String(20), nullable=False)
+
+    # Summarization mode: "quick" or "indepth"
+    # Allows storing multiple summaries for the same video (one per mode)
+    # Default to "quick" for backward compatibility with existing records
+    mode = db.Column(db.String(20), default='quick', nullable=False)
     
     # Video title extracted from YouTube metadata
     # 500 chars accommodates most YouTube titles with room for long titles
@@ -75,15 +80,21 @@ class Video(db.Model):
     # updated_at: Last modification (auto-updated on changes)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Composite unique constraint: same video can have multiple summaries (one per mode)
+    # This allows independent caching for Quick and In-Depth modes
+    __table_args__ = (
+        db.UniqueConstraint('video_id', 'mode', name='uix_video_mode'),
+    )
     
     def to_dict(self):
         """
         Serialize Video object to dictionary for JSON API responses.
-        
+
         Converts SQLAlchemy model to plain Python dict that can be
         JSON-serialized for API responses. Handles datetime conversion
         to ISO format for frontend consumption.
-        
+
         Returns:
             dict: JSON-serializable representation of video data
         """
@@ -95,6 +106,7 @@ class Video(db.Model):
             'transcript': self.transcript,
             'summary': self.summary,
             'status': self.status,
+            'mode': self.mode,  # Include mode in API response
             # Convert datetime objects to ISO format strings for JSON compatibility
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None

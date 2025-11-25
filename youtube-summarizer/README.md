@@ -64,7 +64,7 @@ pnpm run dev
 ```
 
 5. **Access the application:**
-   - Open http://localhost:5173 for the React frontend
+   - Open http://localhost:5173 for the React frontend (may use 5174 if 5173 is in use)
    - Backend API runs on http://localhost:5000
 
 ## Usage

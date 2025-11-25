@@ -11,6 +11,7 @@ import React, { useState } from 'react'
 import { AlertCircle, Youtube, Loader2, CheckCircle, Copy } from 'lucide-react'
 import StructuredDataDisplay from './components/StructuredDataDisplay'
 import SummaryView from './components/SummaryView/SummaryView'
+import ModeSelector from './components/ModeSelector'
 import './App.css'
 
 // Feature flag to toggle between old and new UI
@@ -19,6 +20,7 @@ const USE_PREMIUM_UI = true;
 function App() {
   // Component state for managing the video processing workflow
   const [videoUrl, setVideoUrl] = useState('')           // User input URL
+  const [mode, setMode] = useState('quick')              // Summarization mode (quick/indepth)
   const [isProcessing, setIsProcessing] = useState(false) // Loading state
   const [result, setResult] = useState(null)             // Processed video data
   const [error, setError] = useState(null)               // Error messages
@@ -49,16 +51,17 @@ function App() {
     }
     
     setIsProcessing(true)
-    
+
     try {
-      // Call backend API to process the video
+      // Call backend API to process the video with selected mode
       const response = await fetch('/api/process-video', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          video_url: videoUrl.trim()
+          video_url: videoUrl.trim(),
+          mode: mode  // Pass the selected mode (quick/indepth)
         })
       })
       
@@ -151,7 +154,13 @@ function App() {
                   <Youtube className="absolute right-3 top-3 h-6 w-6 text-gray-400" />
                 </div>
               </div>
-              
+
+              {/* Mode Selector */}
+              <ModeSelector
+                selectedMode={mode}
+                onSelectMode={setMode}
+              />
+
               <button
                 type="submit"
                 disabled={isProcessing || !videoUrl.trim()}
@@ -160,7 +169,7 @@ function App() {
                 {isProcessing ? (
                   <>
                     <Loader2 className="animate-spin h-5 w-5 mr-2" />
-                    Processing Video...
+                    Processing Video ({mode === 'quick' ? 'Quick' : 'In-Depth'})...
                   </>
                 ) : (
                   'Generate Summary'
