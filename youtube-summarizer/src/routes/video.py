@@ -4,6 +4,10 @@ Video Routes - API endpoints for video processing
 This module defines the Flask blueprint for video-related API endpoints.
 Implements the core MVP functionality: processing YouTube video URLs
 into comprehensive summaries.
+
+Phase 4: Personalization Suite
+- Timestamp-based summarization (segment selection)
+- Tone preference (Objective, Academic, Casual, Skeptical, Provocative)
 """
 
 import logging
@@ -23,6 +27,10 @@ from src.utils.error_handler import (
 )
 from src.middleware import limit_video_processing
 import redis
+
+# Feature Flags
+# Set to False to disable Phase 4 personalization features (instant rollback)
+USE_PERSONALIZATION_SUITE = True
 
 # Import limiter from main app (will be set after app creation)
 limiter = None
@@ -55,12 +63,19 @@ def process_video():
     Endpoint: POST /api/process-video
     Request body: {
         "video_url": "https://youtube.com/watch?v=...",
-        "mode": "quick" | "indepth" (optional, default: "quick")
+        "mode": "quick" | "indepth" (optional, default: "quick"),
+        "start_time": "MM:SS" (optional, default: "00:00"),
+        "end_time": "MM:SS" | "end" (optional, default: "end"),
+        "tone": "Objective" | "Academic" | "Casual" | "Skeptical" | "Provocative" (optional, default: "Objective")
     }
 
     Modes:
         - "quick": Fast, concise summary (5 components, 60-min chunking threshold)
         - "indepth": Comprehensive analysis (8 components, 30-min chunking threshold)
+
+    Phase 4 Features:
+        - Timestamp-based slicing: Summarize specific video segments
+        - Tone preference: Control output style
 
     Returns:
         JSON with video data including title, transcript, and mode-specific summary
@@ -77,11 +92,29 @@ def process_video():
         # Get mode parameter (default to "quick")
         mode = data.get('mode', 'quick')
 
+        # Get Phase 4 personalization parameters (with defaults)
+        start_time = data.get('start_time', '00:00')
+        end_time = data.get('end_time', 'end')
+        tone = data.get('tone', 'Objective')
+
         # Validate mode
         if mode not in ['quick', 'indepth']:
             return jsonify({'error': 'mode must be either "quick" or "indepth"'}), 400
 
-        logger.info(f"Processing video URL: {video_url} (mode: {mode})")
+        # Validate tone
+        valid_tones = ['Objective', 'Academic', 'Casual', 'Skeptical', 'Provocative']
+        if tone not in valid_tones:
+            return jsonify({'error': f'tone must be one of: {", ".join(valid_tones)}'}), 400
+
+        # Validate timestamp format (basic validation)
+        import re
+        timestamp_pattern = r'^\d{1,2}:\d{2}$|^\d{1,2}:\d{2}:\d{2}$|^end$'
+        if not re.match(timestamp_pattern, start_time):
+            return jsonify({'error': 'start_time must be in MM:SS or HH:MM:SS format'}), 400
+        if not re.match(timestamp_pattern, end_time):
+            return jsonify({'error': 'end_time must be in MM:SS or HH:MM:SS format, or "end"'}), 400
+
+        logger.info(f"Processing video URL: {video_url} (mode: {mode}, segment: {start_time}-{end_time}, tone: {tone})")
 
         # Extract video ID from URL
         try:
@@ -113,6 +146,7 @@ def process_video():
             transcript_data = transcript_extractor.get_transcript(video_id)
             video.title = transcript_data.get('title', f'Video {video_id}')
             video.transcript = transcript_data.get('transcript')
+            raw_segments = transcript_data.get('raw_segments', [])  # Phase 4: Get timestamp data
 
             if not video.transcript or not video.transcript.strip():
                 raise TranscriptExtractionError("No transcript available for this video")
@@ -122,15 +156,35 @@ def process_video():
             logger.info(f"DEBUG: Transcript first 300 chars: {video.transcript[:300]}")
             logger.info(f"DEBUG: Transcript extraction method: {transcript_data.get('method', 'unknown')}")
             logger.info(f"DEBUG: Is auto-generated: {transcript_data.get('is_auto_generated', 'unknown')}")
+            logger.info(f"DEBUG: Raw segments available: {len(raw_segments) > 0}")
 
-            # Generate AI summary with mode-specific configuration
-            logger.info(f"Generating {mode} AI summary for '{video.title}'")
-            summary = ai_summarizer.generate_comprehensive_summary(video.transcript, video.title, mode)
+            # Generate AI summary with mode-specific configuration and Phase 4 personalization
+            logger.info(f"Generating {mode} AI summary for '{video.title}' (segment: {start_time}-{end_time}, tone: {tone})")
+            summary = ai_summarizer.generate_comprehensive_summary(
+                transcript=video.transcript,
+                title=video.title,
+                mode=mode,
+                raw_segments=raw_segments,
+                start_time=start_time,
+                end_time=end_time,
+                tone=tone
+            )
+
+            # Store personalization metadata in summary JSON
+            if isinstance(summary, dict):
+                summary['_metadata'] = {
+                    'mode': mode,
+                    'start_time': start_time,
+                    'end_time': end_time,
+                    'tone': tone,
+                    'prompt_version': 'v4.0'
+                }
+
             video.summary = summary
             video.status = 'completed'
 
             db.session.commit()
-            logger.info(f"Video {video_id} processed successfully with {mode} mode")
+            logger.info(f"Video {video_id} processed successfully with {mode} mode (segment: {start_time}-{end_time}, tone: {tone})")
             return jsonify(video.to_dict())
 
         except TranscriptExtractionError as e:

@@ -269,18 +269,23 @@ class TranscriptExtractor:
             
             # Fetch the actual transcript data
             transcript_data = transcript.fetch()
-            
+
+            # Preserve raw transcript data with timestamps for Phase 4 slicing feature
+            # Format: [{"start": 0.0, "end": 3.5, "text": "..."}, ...]
+            raw_transcript_segments = transcript_data
+
             # Combine all transcript segments into single text
             transcript_text = ' '.join([entry['text'] for entry in transcript_data])
-            
+
             # Clean up the transcript text
             transcript_text = self._clean_transcript_text(transcript_text)
-            
+
             # Get video title
             title = self._get_video_title(video_id)
-            
+
             return {
                 'transcript': transcript_text,
+                'raw_segments': raw_transcript_segments,  # NEW: Preserve timestamp data
                 'title': title,
                 'method': 'youtube_api',
                 'language': language_code,
@@ -365,6 +370,7 @@ class TranscriptExtractor:
 
                 return {
                     'transcript': transcript,
+                    'raw_segments': [],  # TODO: Parse VTT timestamps for Phase 4 slicing
                     'title': title,
                     'method': 'yt-dlp',
                     'language': 'en'

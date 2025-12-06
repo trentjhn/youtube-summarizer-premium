@@ -11,16 +11,20 @@ import React, { useState } from 'react'
 import { AlertCircle, Youtube, Loader2, CheckCircle, Copy } from 'lucide-react'
 import StructuredDataDisplay from './components/StructuredDataDisplay'
 import SummaryView from './components/SummaryView/SummaryView'
-import ModeSelector from './components/ModeSelector'
+import PersonalizationControlPanel from './components/PersonalizationControlPanel'
 import './App.css'
 
-// Feature flag to toggle between old and new UI
-const USE_PREMIUM_UI = true;
+// Feature flags
+const USE_PREMIUM_UI = true;  // Toggle between old and new UI
+const USE_PERSONALIZATION_SUITE = true;  // Phase 4: Timestamp & Tone features
 
 function App() {
   // Component state for managing the video processing workflow
   const [videoUrl, setVideoUrl] = useState('')           // User input URL
   const [mode, setMode] = useState('quick')              // Summarization mode (quick/indepth)
+  const [startTime, setStartTime] = useState('00:00')    // Phase 4: Segment start time
+  const [endTime, setEndTime] = useState('end')          // Phase 4: Segment end time
+  const [tone, setTone] = useState('Objective')          // Phase 4: Output tone
   const [isProcessing, setIsProcessing] = useState(false) // Loading state
   const [result, setResult] = useState(null)             // Processed video data
   const [error, setError] = useState(null)               // Error messages
@@ -53,16 +57,26 @@ function App() {
     setIsProcessing(true)
 
     try {
-      // Call backend API to process the video with selected mode
+      // Build request body with Phase 4 personalization parameters
+      const requestBody = {
+        video_url: videoUrl.trim(),
+        mode: mode  // Pass the selected mode (quick/indepth)
+      }
+
+      // Add Phase 4 personalization parameters if feature is enabled
+      if (USE_PERSONALIZATION_SUITE) {
+        requestBody.start_time = startTime
+        requestBody.end_time = endTime
+        requestBody.tone = tone
+      }
+
+      // Call backend API to process the video
       const response = await fetch('/api/process-video', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          video_url: videoUrl.trim(),
-          mode: mode  // Pass the selected mode (quick/indepth)
-        })
+        body: JSON.stringify(requestBody)
       })
       
       const data = await response.json()
@@ -155,10 +169,17 @@ function App() {
                 </div>
               </div>
 
-              {/* Mode Selector */}
-              <ModeSelector
-                selectedMode={mode}
-                onSelectMode={setMode}
+              {/* Personalization Control Panel (Phase 4) */}
+              <PersonalizationControlPanel
+                mode={mode}
+                onModeChange={setMode}
+                startTime={startTime}
+                endTime={endTime}
+                onStartTimeChange={setStartTime}
+                onEndTimeChange={setEndTime}
+                tone={tone}
+                onToneChange={setTone}
+                disabled={isProcessing}
               />
 
               <button

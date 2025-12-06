@@ -1,34 +1,39 @@
 /**
  * ModeSelector Component
- * 
+ *
  * Allows users to choose between two summarization modes:
  * - Quick Summary: Fast, concise summary (5 components)
  * - In-Depth Analysis: Comprehensive, detailed analysis (8 components)
- * 
+ *
  * Props:
- *   - selectedMode: Current selected mode ("quick" or "indepth")
- *   - onSelectMode: Callback function when mode is changed
+ *   - mode: Current selected mode ("quick" or "indepth")
+ *   - onModeChange: Callback function when mode is changed
+ *   - disabled: Whether the selector is disabled (optional)
  */
 
 import React from 'react';
 import './ModeSelector.css';
 
-const ModeSelector = ({ selectedMode, onSelectMode }) => {
+const ModeSelector = ({ mode, onModeChange, disabled = false }) => {
+  // Support both old and new prop names for backward compatibility
+  const selectedMode = mode
+  const onSelectMode = onModeChange
+
   return (
-    <div className="mode-selector-container">
+    <div className={`mode-selector-container ${disabled ? 'disabled' : ''}`}>
       <label className="mode-selector-label">
         Choose Summarization Mode
       </label>
-      
+
       <div className="mode-cards-wrapper">
         {/* Quick Summary Mode Card */}
         <div
-          className={`mode-card ${selectedMode === 'quick' ? 'selected' : ''}`}
-          onClick={() => onSelectMode('quick')}
+          className={`mode-card ${selectedMode === 'quick' ? 'selected' : ''} ${disabled ? 'disabled' : ''}`}
+          onClick={() => !disabled && onSelectMode('quick')}
           role="button"
-          tabIndex={0}
+          tabIndex={disabled ? -1 : 0}
           onKeyPress={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
+            if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
               onSelectMode('quick');
             }
           }}
@@ -57,12 +62,12 @@ const ModeSelector = ({ selectedMode, onSelectMode }) => {
 
         {/* In-Depth Analysis Mode Card */}
         <div
-          className={`mode-card ${selectedMode === 'indepth' ? 'selected' : ''}`}
-          onClick={() => onSelectMode('indepth')}
+          className={`mode-card ${selectedMode === 'indepth' ? 'selected' : ''} ${disabled ? 'disabled' : ''}`}
+          onClick={() => !disabled && onSelectMode('indepth')}
           role="button"
-          tabIndex={0}
+          tabIndex={disabled ? -1 : 0}
           onKeyPress={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
+            if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
               onSelectMode('indepth');
             }
           }}

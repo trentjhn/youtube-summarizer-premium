@@ -1,0 +1,64 @@
+# FINAL IMPLEMENTATION TASK: Personalization Suite Upgrade
+
+## CONTEXT
+
+We are implementing a major upgrade to the YouTube Summarizer to introduce a **Personalization Suite** that allows users to control the content and style of the summary output. This is a **consolidated task** that bundles three features for efficiency: **Timestamp-Based Summarization**, **Tone and Style Preference**, and the **Unified Control Panel**.
+
+**Goal:** Implement the changes described in the attached `final_consolidated_implementation_guide.md` safely and incrementally.
+
+## REQUIRED IMPLEMENTATION PHASES
+
+### Phase 1: Backend Core Logic (API, Caching, Slicing, Tone)
+
+**Objective:** Modify the backend to accept and process three new parameters: `start_time`, `end_time`, and `tone`.
+
+**Tasks:**
+1.  **API Update (`main.py`):** Update `/api/process-video` to accept the three new optional parameters. Default `start_time` to "00:00", `end_time` to "end", and `tone` to "Objective".
+2.  **Transcript Slicing (`ai_summarizer.py`):** Implement the `_slice_transcript(full_transcript, start_time, end_time)` function. This function must:
+    -   Convert MM:SS inputs to seconds.
+    -   Handle edge cases (invalid times, start > end, out of bounds).
+    -   Return the text content of the relevant segment.
+3.  **Caching Update (`ai_summarizer.py`):** Update the cache key generation to include all five parameters: `video_id`, `mode`, `start_time`, `end_time`, and `tone`.
+4.  **Prompt Injection (`ai_summarizer.py`):** Update the `generate_summary` logic to inject the selected `tone` into the prompt template.
+
+### Phase 2: Frontend Integration (Unified Control Panel)
+
+**Objective:** Create the Unified Control Panel to manage the new parameters without cluttering the UI.
+
+**Tasks:**
+1.  **Component Creation:** Create a new React component, `PersonalizationControlPanel.jsx`.
+2.  **Integration:** Replace the existing Mode Selector with the new `PersonalizationControlPanel`.
+3.  **UI Elements:** Implement the three sections within the Control Panel:
+    -   **Mode Selector** (Quick vs In-Depth)
+    -   **Video Segment Selector** (Start/End Time Inputs, MM:SS format)
+    -   **Tone Selector** (Dropdown/Radio for Tone: Objective, Academic, Casual, Skeptical, Provocative)
+4.  **API Call:** Ensure the "Generate Summary" button collects all parameters from the Control Panel and sends them to the updated `/api/process-video` endpoint.
+
+## GUARDRAILS AND SAFETY MEASURES
+
+**You MUST adhere to the following guardrails:**
+
+1.  **Backward Compatibility:** The system must work exactly as before if the user only enters a URL and clicks "Generate Summary" (i.e., defaults to Quick Mode, 00:00 to End, Objective Tone).
+2.  **Graceful Handling:** The backend must validate all time inputs and handle slicing errors gracefully, returning a user-friendly error message if the segment is invalid or too short.
+3.  **Caching Integrity:** The cache key must be unique for every combination of the 5 parameters.
+4.  **Feature Flag:** Use a feature flag (e.g., `USE_PERSONALIZATION_SUITE`) to allow the entire new feature set to be toggled off instantly if any issues arise.
+
+## DELIVERABLES
+
+Provide the complete, updated code for all modified files and the new React components.
+
+**Modified Files:**
+- `main.py`
+- `ai_summarizer.py`
+- Existing Frontend Component (e.g., `VideoInputForm.jsx` or `App.jsx`)
+
+**New Files:**
+- `PersonalizationControlPanel.jsx`
+- Any necessary sub-components for the selectors.
+
+**Reference Documents:**
+- `final_consolidated_implementation_guide.md` (Primary Guide)
+- `dual_mode_architecture.md`
+- `dual_mode_analysis.md`
+- `tone_preference_design.md`
+- All previous context files.

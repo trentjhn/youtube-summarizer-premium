@@ -4,6 +4,11 @@
   margin-bottom: 1.5rem;
 }
 
+.mode-selector-container.disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 .mode-selector-label {
   display: block;
   font-size: 1.125rem;
@@ -31,16 +36,21 @@
   overflow: hidden;
 }
 
-.mode-card:hover {
+.mode-card:hover:not(.disabled) {
   border-color: #3b82f6;
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
   transform: translateY(-2px);
 }
 
-.mode-card:focus {
+.mode-card:focus:not(.disabled) {
   outline: none;
   border-color: #3b82f6;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.mode-card.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Selected State */

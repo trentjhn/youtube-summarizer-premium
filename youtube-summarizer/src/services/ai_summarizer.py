@@ -27,9 +27,10 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Prompt version for cache invalidation
-# Increment this version (e.g., "v2.0" -> "v3.0") whenever you modify the prompt
+# Increment this version (e.g., "v2.0" -> "v3.0" -> "v4.0") whenever you modify the prompt
 # to automatically invalidate old cached summaries
-PROMPT_VERSION = "v3.0"
+# v4.0: Added tone and style preference support + timestamp-based summarization
+PROMPT_VERSION = "v4.0"
 
 # QUICK MODE PROMPT - Optimized for speed and conciseness
 QUICK_SUMMARY_PROMPT_V3 = """
@@ -107,6 +108,17 @@ You MUST return a valid JSON object with the following structure:
 - Be concise but comprehensive.
 - Preserve the speaker's actual message and tone.
 
+# TONE AND STYLE CONSTRAINT
+The final summary MUST be written in a **{tone}** tone. Adjust your writing style accordingly:
+
+- **Objective (Faithful Representation)**: Strictly adhere to the speaker's original tone and intent without adding external bias. This is the default and safest approach.
+- **Academic**: Use formal language, complex sentence structures, precise terminology, and cite concepts as you would in an academic paper.
+- **Casual**: Use conversational language, contractions, simple vocabulary, and a friendly tone as if explaining to a friend.
+- **Skeptical**: Critically evaluate the speaker's claims, highlight assumptions, question evidence, and use cautious language to point out potential weaknesses.
+- **Provocative**: Use strong, challenging language, emphasize controversial points, and present the content in a way that stimulates debate and critical thinking.
+
+Apply the {tone} tone consistently across ALL components (quick_takeaway, key_points, full_summary, etc.).
+
 # TRANSCRIPT
 ---
 {transcript}
@@ -115,7 +127,7 @@ You MUST return a valid JSON object with the following structure:
 Video Title: {title}
 
 # FINAL REMINDER
-Return ONLY valid JSON. Do not include any explanatory text before or after the JSON object. Focus on essential insights only.
+Return ONLY valid JSON. Do not include any explanatory text before or after the JSON object. Focus on essential insights only. Remember to apply the {tone} tone throughout.
 """
 
 # IN-DEPTH MODE PROMPT - Optimized for comprehensiveness and detail
@@ -268,6 +280,17 @@ You MUST return a valid JSON object with the following structure:
 - Captures the speaker's provocative tone
 - Specific and actionable
 
+# TONE AND STYLE CONSTRAINT
+The final summary MUST be written in a **{tone}** tone. Adjust your writing style accordingly:
+
+- **Objective (Faithful Representation)**: Strictly adhere to the speaker's original tone and intent without adding external bias. This is the default and safest approach.
+- **Academic**: Use formal language, complex sentence structures, precise terminology, and cite concepts as you would in an academic paper.
+- **Casual**: Use conversational language, contractions, simple vocabulary, and a friendly tone as if explaining to a friend.
+- **Skeptical**: Critically evaluate the speaker's claims, highlight assumptions, question evidence, and use cautious language to point out potential weaknesses.
+- **Provocative**: Use strong, challenging language, emphasize controversial points, and present the content in a way that stimulates debate and critical thinking.
+
+Apply the {tone} tone consistently across ALL components (quick_takeaway, key_points, full_summary, detailed_analysis, key_quotes, arguments, etc.).
+
 # TRANSCRIPT
 ---
 {transcript}
@@ -276,7 +299,7 @@ You MUST return a valid JSON object with the following structure:
 Video Title: {title}
 
 # FINAL REMINDER
-Return ONLY valid JSON. Do not include any explanatory text before or after the JSON object. Adhere to the principles above with absolute precision.
+Return ONLY valid JSON. Do not include any explanatory text before or after the JSON object. Adhere to the principles above with absolute precision. Remember to apply the {tone} tone throughout.
 """
 
 class AISummarizer:
@@ -328,11 +351,123 @@ Format the summary with clear sections and markdown formatting."""
         word_count = len(transcript.split())
         return word_count / 150
 
-    def generate_comprehensive_summary(self, transcript: str, title: str, mode: str = "quick") -> Dict:
+    def _parse_timestamp(self, timestamp_str: str) -> float:
+        """
+        Parse MM:SS or HH:MM:SS timestamp string to total seconds.
+
+        Args:
+            timestamp_str: Timestamp in format "MM:SS" or "HH:MM:SS" or "end"
+
+        Returns:
+            float: Total seconds, or -1 for "end"
+
+        Raises:
+            ValueError: If timestamp format is invalid
+        """
+        if timestamp_str.lower() == "end":
+            return -1
+
+        parts = timestamp_str.split(":")
+        if len(parts) == 2:  # MM:SS
+            try:
+                minutes, seconds = int(parts[0]), int(parts[1])
+                return minutes * 60 + seconds
+            except ValueError:
+                raise ValueError(f"Invalid MM:SS timestamp format: {timestamp_str}")
+        elif len(parts) == 3:  # HH:MM:SS
+            try:
+                hours, minutes, seconds = int(parts[0]), int(parts[1]), int(parts[2])
+                return hours * 3600 + minutes * 60 + seconds
+            except ValueError:
+                raise ValueError(f"Invalid HH:MM:SS timestamp format: {timestamp_str}")
+        else:
+            raise ValueError(f"Invalid timestamp format: {timestamp_str}. Expected MM:SS or HH:MM:SS")
+
+    def _slice_transcript(self, raw_segments: List[Dict], start_time: str, end_time: str) -> str:
+        """
+        Slice transcript based on start and end timestamps.
+
+        Args:
+            raw_segments: List of transcript segments with timestamps
+                         Format: [{"start": 0.0, "end": 3.5, "text": "..."}, ...]
+            start_time: Start timestamp in MM:SS or HH:MM:SS format
+            end_time: End timestamp in MM:SS or HH:MM:SS format, or "end"
+
+        Returns:
+            str: Sliced transcript text
+
+        Raises:
+            ValueError: If timestamps are invalid or segment is too short
+        """
+        # Handle case where raw_segments is not available (yt-dlp method)
+        if not raw_segments:
+            logger.warning("Raw transcript segments not available. Cannot slice transcript. Using full transcript.")
+            raise ValueError("Timestamp-based slicing requires transcript with timestamp data. This video's transcript does not include timestamps.")
+
+        # Parse timestamps
+        start_seconds = self._parse_timestamp(start_time)
+        end_seconds = self._parse_timestamp(end_time)
+
+        # Get video duration from last segment
+        video_duration = raw_segments[-1]['end'] if raw_segments else 0
+
+        # Handle "end" special value
+        if end_seconds == -1:
+            end_seconds = video_duration
+
+        # Validation
+        if start_seconds < 0:
+            raise ValueError(f"Start time cannot be negative: {start_time}")
+
+        if end_seconds > video_duration:
+            raise ValueError(f"End time ({end_time}) exceeds video duration ({video_duration:.0f} seconds)")
+
+        if start_seconds >= end_seconds:
+            raise ValueError(f"Start time ({start_time}) must be before end time ({end_time})")
+
+        # Check minimum segment length (60 seconds)
+        segment_duration = end_seconds - start_seconds
+        if segment_duration < 60:
+            raise ValueError(f"Segment duration ({segment_duration:.0f} seconds) is too short. Minimum is 60 seconds.")
+
+        # Extract segments within the time range
+        sliced_segments = []
+        for segment in raw_segments:
+            segment_start = segment.get('start', 0)
+            segment_end = segment.get('end', 0)
+
+            # Include segment if it overlaps with the requested time range
+            if segment_end >= start_seconds and segment_start <= end_seconds:
+                sliced_segments.append(segment['text'])
+
+        if not sliced_segments:
+            raise ValueError(f"No transcript content found between {start_time} and {end_time}")
+
+        # Combine sliced segments into single text
+        sliced_transcript = ' '.join(sliced_segments)
+
+        logger.info(f"Sliced transcript from {start_time} to {end_time}: {len(sliced_segments)} segments, {len(sliced_transcript)} characters")
+
+        return sliced_transcript
+
+    def generate_comprehensive_summary(
+        self,
+        transcript: str,
+        title: str,
+        mode: str = "quick",
+        raw_segments: Optional[List[Dict]] = None,
+        start_time: str = "00:00",
+        end_time: str = "end",
+        tone: str = "Objective"
+    ) -> Dict:
         """
         Generate a comprehensive structured summary of a video transcript.
         Supports dual-mode summarization: "quick" (fast, concise) or "indepth" (comprehensive, detailed).
         Uses adaptive chunking for long videos based on mode-specific thresholds.
+
+        Phase 4 Features:
+        - Timestamp-based slicing: Summarize specific video segments
+        - Tone preference: Control output style (Objective, Academic, Casual, Skeptical, Provocative)
 
         Quick Mode (default):
         - 5 JSON components (quick_takeaway, key_points, topics, timestamps, full_summary)
@@ -350,6 +485,10 @@ Format the summary with clear sections and markdown formatting."""
             transcript: Full video transcript text
             title: Video title for additional context
             mode: Summarization mode - "quick" or "indepth" (default: "quick")
+            raw_segments: Raw transcript segments with timestamps (for slicing)
+            start_time: Start timestamp in MM:SS or HH:MM:SS format (default: "00:00")
+            end_time: End timestamp in MM:SS or HH:MM:SS format, or "end" (default: "end")
+            tone: Output tone - "Objective", "Academic", "Casual", "Skeptical", "Provocative" (default: "Objective")
 
         Returns:
             dict: Structured summary with mode-specific components
@@ -363,43 +502,58 @@ Format the summary with clear sections and markdown formatting."""
             logger.warning(f"Invalid mode '{mode}', defaulting to 'quick'")
             mode = "quick"
 
+        # Validate tone
+        valid_tones = ["Objective", "Academic", "Casual", "Skeptical", "Provocative"]
+        if tone not in valid_tones:
+            logger.warning(f"Invalid tone '{tone}', defaulting to 'Objective'")
+            tone = "Objective"
+
+        # Apply timestamp slicing if requested (not default values)
+        original_transcript = transcript
+        if (start_time != "00:00" or end_time != "end") and raw_segments:
+            logger.info(f"Applying timestamp slicing: {start_time} to {end_time}")
+            transcript = self._slice_transcript(raw_segments, start_time, end_time)
+        elif (start_time != "00:00" or end_time != "end") and not raw_segments:
+            logger.warning("Timestamp slicing requested but raw_segments not available. Using full transcript.")
+
         # Check cache first if available
-        # Include PROMPT_VERSION and MODE in cache key to automatically invalidate old summaries
+        # Include PROMPT_VERSION, MODE, START_TIME, END_TIME, and TONE in cache key
+        # This ensures unique cache entries for every unique combination of parameters
         if self.cache:
-            versioned_content = PROMPT_VERSION + mode + transcript + title
+            versioned_content = f"{PROMPT_VERSION}_{mode}_{start_time}_{end_time}_{tone}_{transcript}_{title}"
             content_hash = self.cache.generate_content_hash(versioned_content)
             cached_summary = self.cache.get_cached_summary(content_hash)
             if cached_summary:
-                logger.info(f"Retrieved {mode} summary from cache (version {PROMPT_VERSION}) for content hash: {content_hash}")
+                logger.info(f"Retrieved {mode} summary from cache (version {PROMPT_VERSION}, tone: {tone}, segment: {start_time}-{end_time}) for content hash: {content_hash}")
                 # Ensure cached summary is dict (backward compatibility)
                 if isinstance(cached_summary, str):
                     logger.warning("Cached summary is string format, converting to JSON structure")
                     return self._get_fallback_summary(transcript, title, cached_summary)
                 return cached_summary
             else:
-                logger.info(f"Cache miss for {mode} mode (version {PROMPT_VERSION}), will generate new summary")
+                logger.info(f"Cache miss for {mode} mode (version {PROMPT_VERSION}, tone: {tone}, segment: {start_time}-{end_time}), will generate new summary")
 
         # Estimate video duration and choose appropriate strategy based on mode-specific threshold
         estimated_duration = self._estimate_duration_minutes(transcript)
 
         if estimated_duration > config["chunking_threshold"]:
             logger.info(f"Video duration estimated at {estimated_duration:.1f} minutes. Using adaptive chunking for {mode} mode (threshold: {config['chunking_threshold']} min).")
-            summary_json = self._summarize_in_chunks(transcript, title, mode, config)
+            summary_json = self._summarize_in_chunks(transcript, title, mode, config, tone)
         else:
             logger.info(f"Video duration estimated at {estimated_duration:.1f} minutes. Using single-pass summarization for {mode} mode.")
-            summary_json = self._summarize_single_pass(transcript, title, mode, config)
+            summary_json = self._summarize_single_pass(transcript, title, mode, config, tone)
 
         # Cache the result if cache manager is available
-        # Include mode in cache key for independent caching of quick vs indepth summaries
+        # Include mode, start_time, end_time, and tone in cache key for unique caching
         if self.cache and summary_json:
-            versioned_content = PROMPT_VERSION + mode + transcript + title
+            versioned_content = f"{PROMPT_VERSION}_{mode}_{start_time}_{end_time}_{tone}_{transcript}_{title}"
             content_hash = self.cache.generate_content_hash(versioned_content)
             self.cache.cache_summary(content_hash, summary_json)
-            logger.info(f"Cached {mode} JSON summary (version {PROMPT_VERSION}) for content hash: {content_hash}")
+            logger.info(f"Cached {mode} JSON summary (version {PROMPT_VERSION}, tone: {tone}, segment: {start_time}-{end_time}) for content hash: {content_hash}")
 
         return summary_json
 
-    def _summarize_single_pass(self, transcript: str, title: str, mode: str, config: dict) -> Dict:
+    def _summarize_single_pass(self, transcript: str, title: str, mode: str, config: dict, tone: str = "Objective") -> Dict:
         """
         Summarize a transcript in a single pass using mode-specific configuration.
         This is the standard method for videos below the mode's chunking threshold.
@@ -409,14 +563,15 @@ Format the summary with clear sections and markdown formatting."""
             title: Video title for context
             mode: Summarization mode ("quick" or "indepth")
             config: Mode-specific configuration dictionary
+            tone: Output tone preference (default: "Objective")
 
         Returns:
             dict: Structured JSON summary (5 components for quick, 8 for indepth)
         """
         try:
             # Use direct OpenAI API with mode-specific prompt and config
-            logger.info(f"Using single-pass summarization for {mode} mode (version: {PROMPT_VERSION})")
-            raw_response = self._generate_with_openai(transcript, title, mode, config)
+            logger.info(f"Using single-pass summarization for {mode} mode (version: {PROMPT_VERSION}, tone: {tone})")
+            raw_response = self._generate_with_openai(transcript, title, mode, config, tone)
 
             # Parse JSON response with comprehensive error handling
             try:
@@ -457,7 +612,7 @@ Format the summary with clear sections and markdown formatting."""
             logger.error(f"AI summarization failed for {mode} mode with exception: {e}", exc_info=True)
             return self._get_fallback_summary(transcript, title)
 
-    def _summarize_in_chunks(self, transcript: str, title: str, mode: str, config: dict) -> Dict:
+    def _summarize_in_chunks(self, transcript: str, title: str, mode: str, config: dict, tone: str = "Objective") -> Dict:
         """
         Summarize a long transcript by splitting it into chunks,
         summarizing each chunk, then creating a meta-summary.
@@ -468,6 +623,7 @@ Format the summary with clear sections and markdown formatting."""
             title: Video title for context
             mode: Summarization mode ("quick" or "indepth")
             config: Mode-specific configuration dictionary
+            tone: Output tone preference (default: "Objective")
 
         Returns:
             dict: Structured JSON summary (5 components for quick, 8 for indepth)
@@ -492,9 +648,9 @@ Format the summary with clear sections and markdown formatting."""
             meta_transcript = "\n\n---\n\n".join(chunk_summaries)
             logger.info(f"Created meta-transcript from {len(chunk_summaries)} chunk summaries ({len(meta_transcript)} chars)")
 
-            # 4. Summarize the meta-transcript to get final output using mode-specific config
-            logger.info(f"Creating final {mode} summary from chunk summaries")
-            final_summary = self._summarize_single_pass(meta_transcript, title, mode, config)
+            # 4. Summarize the meta-transcript to get final output using mode-specific config and tone
+            logger.info(f"Creating final {mode} summary from chunk summaries with {tone} tone")
+            final_summary = self._summarize_single_pass(meta_transcript, title, mode, config, tone)
 
             return final_summary
 
@@ -689,7 +845,7 @@ COMPREHENSIVE SUMMARY:
             logger.error(f"LangChain summarization failed: {e}")
             raise RuntimeError(f"LangChain summarization failed: {e}")
 
-    def _generate_with_openai(self, transcript: str, title: str, mode: str, config: dict) -> str:
+    def _generate_with_openai(self, transcript: str, title: str, mode: str, config: dict, tone: str = "Objective") -> str:
         """
         Generate summary using OpenAI API directly with mode-specific configuration.
 
@@ -698,6 +854,7 @@ COMPREHENSIVE SUMMARY:
             title: Video title for context
             mode: Summarization mode ("quick" or "indepth")
             config: Mode-specific configuration dictionary
+            tone: Output tone preference (default: "Objective")
 
         Returns:
             str: Raw JSON string from AI (to be parsed by caller)
@@ -715,9 +872,9 @@ COMPREHENSIVE SUMMARY:
                 logger.warning(f"Transcript truncated from {len(transcript)} to {max_length} chars for {mode} mode")
                 transcript = transcript[:max_length] + "..."
 
-            # Use mode-specific prompt from config
+            # Use mode-specific prompt from config and inject tone
             prompt_template = config["prompt"]
-            prompt = prompt_template.format(title=title, transcript=transcript)
+            prompt = prompt_template.format(title=title, transcript=transcript, tone=tone)
 
             headers = {
                 "Authorization": f"Bearer {api_key}",
