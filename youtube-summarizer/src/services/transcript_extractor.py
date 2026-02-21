@@ -241,13 +241,17 @@ class TranscriptExtractor:
             Exception: If API extraction fails
         """
         try:
+            # youtube-transcript-api v1.x requires instantiation
+            # (Changed from static methods in v0.x)
+            ytt_api = YouTubeTranscriptApi()
+
             # Get available transcript languages
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-            
+            transcript_list = ytt_api.list(video_id)
+
             # Try to get English transcript first, then any available language
             transcript = None
             language_code = 'en'
-            
+
             try:
                 # Prefer manually created transcripts over auto-generated
                 transcript = transcript_list.find_manually_created_transcript(['en'])
@@ -263,19 +267,24 @@ class TranscriptExtractor:
                         transcript = available_transcript
                         language_code = transcript.language_code
                         break
-            
+
             if not transcript:
                 raise Exception("No transcripts available")
-            
+
             # Fetch the actual transcript data
             transcript_data = transcript.fetch()
 
             # Preserve raw transcript data with timestamps for Phase 4 slicing feature
-            # Format: [{"start": 0.0, "end": 3.5, "text": "..."}, ...]
-            raw_transcript_segments = transcript_data
+            # Format: [{"start": 0.0, "duration": 3.5, "text": "..."}, ...]
+            # Note: v1.x returns FetchedTranscriptSnippet objects with .text, .start, .duration attributes
+            raw_transcript_segments = [
+                {"start": entry.start, "duration": entry.duration, "text": entry.text}
+                for entry in transcript_data
+            ]
 
             # Combine all transcript segments into single text
-            transcript_text = ' '.join([entry['text'] for entry in transcript_data])
+            # Note: v1.x uses .text attribute instead of ['text'] dict access
+            transcript_text = ' '.join([entry.text for entry in transcript_data])
 
             # Clean up the transcript text
             transcript_text = self._clean_transcript_text(transcript_text)
@@ -285,13 +294,13 @@ class TranscriptExtractor:
 
             return {
                 'transcript': transcript_text,
-                'raw_segments': raw_transcript_segments,  # NEW: Preserve timestamp data
+                'raw_segments': raw_transcript_segments,  # Preserve timestamp data
                 'title': title,
                 'method': 'youtube_api',
                 'language': language_code,
                 'is_auto_generated': transcript.is_generated
             }
-            
+
         except Exception as e:
             raise Exception(f"YouTube API extraction failed: {e}")
 

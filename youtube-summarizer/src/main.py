@@ -13,11 +13,15 @@ print(f"Loading .env from: {env_file}")
 print(f"File exists: {os.path.exists(env_file)}")
 # Load with override=True to ensure .env values take precedence
 load_dotenv(env_file, override=True)
-api_key = os.environ.get('OPENAI_API_KEY')
-print(f"OPENAI_API_KEY loaded: {bool(api_key)}")
-if api_key:
-    print(f"API Key first 20 chars: {api_key[:20]}")
-    print(f"API Key length: {len(api_key)}")
+
+# Check for Google AI API key (primary) or fallback to GEMINI_API_KEY
+google_api_key = os.environ.get('GOOGLE_AI_API_KEY') or os.environ.get('GEMINI_API_KEY')
+print(f"GOOGLE_AI_API_KEY loaded: {bool(google_api_key)}")
+if google_api_key:
+    print(f"API Key first 20 chars: {google_api_key[:20]}")
+    print(f"API Key length: {len(google_api_key)}")
+else:
+    print("WARNING: No Google AI API key found. Set GOOGLE_AI_API_KEY environment variable.")
 
 # DON'T CHANGE THIS !!!
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))

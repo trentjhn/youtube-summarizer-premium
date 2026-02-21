@@ -1,9 +1,37 @@
 """
-AI Summarizer - LangChain-based summarization service
+AI Summarizer - Google Gemini-based summarization service
 
 This module provides AI-powered summarization of YouTube video transcripts using
-LangChain and OpenAI's GPT models. Implements sophisticated prompt engineering
-and handles long-form content through map-reduce patterns.
+Google's Gemini 2.5 Flash-Lite model. Implements sophisticated prompt engineering
+and handles long-form content through intelligent chunking.
+
+=============================================================================
+MODEL CHANGE DOCUMENTATION (February 2026)
+=============================================================================
+
+PREVIOUS MODEL: OpenAI GPT-4o-mini
+- Input: $0.15/1M tokens | Output: $0.60/1M tokens
+- Context Window: 128K tokens (~1.5 hours of video)
+- Required chunking for most long-form content
+
+NEW MODEL: Google Gemini 2.5 Flash-Lite
+- Input: $0.10/1M tokens | Output: $0.40/1M tokens (33% CHEAPER)
+- Context Window: 1M tokens (~12.5 hours of video)
+- Eliminates chunking for 99%+ of videos
+- Better quality benchmarks (MMMU 72.9% vs 59.4%)
+
+WHY THIS CHANGE:
+1. Cost Reduction: 33% cheaper per token
+2. Larger Context: 8x larger context window (1M vs 128K tokens)
+3. Quality Improvement: Better performance on summarization benchmarks
+4. Chunking Elimination: No more fragmented summaries for long videos
+
+API CREDENTIALS:
+- Set GOOGLE_AI_API_KEY environment variable
+- Get your API key from: https://makersuite.google.com/app/apikey
+- Fallback: GEMINI_API_KEY is also supported for backward compatibility
+
+=============================================================================
 """
 
 import os
@@ -11,7 +39,15 @@ import json
 import logging
 from typing import Optional, List, Dict
 
-# LangChain imports
+# Google Gemini imports
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    logging.warning("Google Generative AI not available - install with: pip install google-generativeai")
+
+# LangChain imports (kept for potential fallback/legacy support)
 try:
     from langchain_openai import ChatOpenAI
     from langchain.chains.summarize import load_summarize_chain
@@ -26,13 +62,45 @@ except ImportError:
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Prompt version for cache invalidation
-# Increment this version (e.g., "v2.0" -> "v3.0" -> "v4.0") whenever you modify the prompt
-# to automatically invalidate old cached summaries
-# v4.0: Added tone and style preference support + timestamp-based summarization
-PROMPT_VERSION = "v4.0"
+# =============================================================================
+# MODEL CONFIGURATION
+# =============================================================================
+# Gemini 2.5 Flash-Lite: Best balance of cost, speed, and quality for summarization
+# - 1M token context window handles virtually any video without chunking
+# - Optimized for low-latency tasks like summarization
+# - Supports multimodal input (future enhancement potential)
+MODEL_NAME = "gemini-2.5-flash-lite"
+MODEL_PROVIDER = "google"
 
+# Context window configuration (in tokens)
+# Gemini 2.5 Flash-Lite supports 1M tokens, but we use conservative limits
+# to ensure reliable performance and leave room for output
+MAX_INPUT_TOKENS = 900_000  # ~900K input tokens (leaving 100K for output)
+MAX_OUTPUT_TOKENS = 65_000  # Gemini 2.5 Flash-Lite supports up to 65K output
+
+# Token estimation: ~1.3 tokens per word for English text
+TOKENS_PER_WORD = 1.3
+# Approximate words per minute of speech
+WORDS_PER_MINUTE = 150
+# Therefore: ~195 tokens per minute of video, ~11,700 tokens per hour
+TOKENS_PER_HOUR = int(WORDS_PER_MINUTE * 60 * TOKENS_PER_WORD)
+
+# Prompt version for cache invalidation
+# Increment this version whenever you modify the prompt to automatically invalidate old cached summaries
+# v4.0: Added tone and style preference support + timestamp-based summarization
+# v5.0: MAJOR UPDATE - Switched to Gemini 2.5 Flash-Lite, removed numerical constraints,
+#       added comprehensiveness principle, optimized for 1M token context window
+PROMPT_VERSION = "v5.0"
+
+# =============================================================================
 # QUICK MODE PROMPT - Optimized for speed and conciseness
+# =============================================================================
+# v5.0 CHANGES:
+# - Removed numerical constraints (e.g., "5-7 key points") to allow natural coverage
+# - Added COMPREHENSIVENESS PRINCIPLE to ensure thorough summarization
+# - Optimized for Gemini 2.5 Flash-Lite's 1M token context window
+# - The model now determines appropriate depth based on content complexity
+# =============================================================================
 QUICK_SUMMARY_PROMPT_V3 = """
 # ROLE & GOAL
 You are a world-class summarization engine. Your goal is to create a concise, accurate, and insightful summary. Adhere to these principles:
@@ -60,6 +128,13 @@ You are a world-class summarization engine. Your goal is to create a concise, ac
    - Match the speaker's tone (direct, provocative, academic, humorous, passionate, etc.).
    - If the speaker is fired up, your summary should convey that energy.
 
+5. **COMPREHENSIVENESS PRINCIPLE** (NEW)
+   - Cover ALL major topics and arguments presented in the video.
+   - Do NOT artificially limit your coverage to fit arbitrary constraints.
+   - Let the content dictate the depth and breadth of your summary.
+   - A 3-hour video should have more key points than a 10-minute video.
+   - Include every significant insight, argument, and conclusion.
+
 # JSON OUTPUT STRUCTURE (5 Components)
 
 You MUST return a valid JSON object with the following structure:
@@ -67,7 +142,7 @@ You MUST return a valid JSON object with the following structure:
 {{
   "quick_takeaway": "A single, powerful sentence (max 150 characters) that captures the absolute core message.",
   "key_points": [
-    "5-7 concise, scannable insights. Each should be a complete thought in 1-2 sentences."
+    "Concise, scannable insights. Each should be a complete thought in 1-2 sentences. Include as many points as needed to cover all major insights."
   ],
   "topics": [
     {{"topic_name": "The first major theme or chapter", "summary_section_id": 1}},
@@ -89,24 +164,27 @@ You MUST return a valid JSON object with the following structure:
 - Must capture the speaker's MAIN point, not a generic description.
 
 ## key_points
-- 5-7 points maximum.
+- Include ALL significant insights from the video.
 - Each point is 1-2 sentences.
 - Direct, actionable, specific.
 - Preserve attribution.
+- Let the content determine the number of points (short video = fewer points, long video = more points).
 
 ## topics
-- Identify 3-5 main sections/themes.
+- Identify ALL main sections/themes discussed in the video.
 - The `summary_section_id` should correspond to the paragraph `id` in `full_summary`.
 
 ## timestamps
-- Identify 3-5 key moments with exact timestamps (HH:MM:SS or MM:SS format).
+- Identify key moments with exact timestamps (HH:MM:SS or MM:SS format).
 - Brief description (max 100 characters).
+- Include timestamps for all major topic transitions and important moments.
 
 ## full_summary
-- 5-8 well-developed paragraphs.
+- Well-developed paragraphs covering the entire video content.
 - Each paragraph is an object with a unique integer `id` and `content` (markdown text).
-- Be concise but comprehensive.
+- Be concise but comprehensive - cover everything important.
 - Preserve the speaker's actual message and tone.
+- More paragraphs for longer/denser content, fewer for shorter content.
 
 # TONE AND STYLE CONSTRAINT
 The final summary MUST be written in a **{tone}** tone. Adjust your writing style accordingly:
@@ -127,10 +205,18 @@ Apply the {tone} tone consistently across ALL components (quick_takeaway, key_po
 Video Title: {title}
 
 # FINAL REMINDER
-Return ONLY valid JSON. Do not include any explanatory text before or after the JSON object. Focus on essential insights only. Remember to apply the {tone} tone throughout.
+Return ONLY valid JSON. Do not include any explanatory text before or after the JSON object. Focus on essential insights only. Remember to apply the {tone} tone throughout. Cover ALL significant content - do not artificially limit your summary.
 """
 
+# =============================================================================
 # IN-DEPTH MODE PROMPT - Optimized for comprehensiveness and detail
+# =============================================================================
+# v5.0 CHANGES:
+# - Removed numerical constraints (e.g., "10-15 key points") to allow natural coverage
+# - Added COMPREHENSIVENESS PRINCIPLE to ensure thorough summarization
+# - Optimized for Gemini 2.5 Flash-Lite's 1M token context window
+# - The model now determines appropriate depth based on content complexity
+# =============================================================================
 INDEPTH_SUMMARY_PROMPT_V3 = """
 # ROLE & GOAL
 You are a world-class summarization engine. Your goal is to create a comprehensive, in-depth analysis of the provided video transcript. You must adhere to the following principles with absolute precision.
@@ -162,6 +248,13 @@ You are a world-class summarization engine. Your goal is to create a comprehensi
    - If the speaker is fired up, your summary should convey that energy.
    - If the speaker is analytical, your summary should be analytical.
 
+5. **COMPREHENSIVENESS PRINCIPLE** (NEW)
+   - Cover ALL major topics, arguments, and insights presented in the video.
+   - Do NOT artificially limit your coverage to fit arbitrary constraints.
+   - Let the content dictate the depth and breadth of your analysis.
+   - A 3-hour video should have more detail than a 10-minute video.
+   - Include every significant insight, argument, quote, and conclusion.
+
 # JSON OUTPUT STRUCTURE (8 Components - IN-DEPTH MODE)
 
 You MUST return a valid JSON object with the following structure:
@@ -169,7 +262,7 @@ You MUST return a valid JSON object with the following structure:
 {{
   "quick_takeaway": "A single, powerful sentence (max 150 characters) that captures the absolute core message.",
   "key_points": [
-    "10-15 detailed, comprehensive insights. Each should be a complete thought in 1-2 sentences."
+    "Detailed, comprehensive insights. Each should be a complete thought in 1-2 sentences. Include ALL major points."
   ],
   "topics": [
     {{"topic_name": "The first major theme or chapter", "summary_section_id": 1}},
@@ -201,41 +294,45 @@ You MUST return a valid JSON object with the following structure:
 - Be provocative if the speaker is provocative.
 
 ## key_points
-- 10-15 points (comprehensive coverage).
+- Include ALL significant insights from the video (comprehensive coverage).
 - Each point is 1-2 sentences.
 - Direct, actionable, specific.
 - Preserve attribution (e.g., "The speaker quotes X..." or "He references Y...").
 - Include nuanced details and context.
+- Let the content determine the number of points (short video = fewer, long video = more).
 
 ## topics
-- Identify 5-8 main sections/themes (more granular than quick mode).
+- Identify ALL main sections/themes discussed (more granular than quick mode).
 - The `summary_section_id` should correspond to the paragraph `id` in `full_summary` where that topic begins.
 
 ## timestamps
-- Identify 5-8 key moments with exact timestamps (HH:MM:SS or MM:SS format).
+- Identify ALL key moments with exact timestamps (HH:MM:SS or MM:SS format).
 - Brief description (max 100 characters).
+- Include timestamps for all major topic transitions, important arguments, and key quotes.
 
 ## full_summary
-- 8-12 comprehensive paragraphs (more detailed than quick mode).
+- Comprehensive paragraphs covering the entire video content.
 - Each paragraph is an object with a unique integer `id` and `content` (markdown text).
-- Be thorough and comprehensive.
+- Be thorough and comprehensive - cover everything important.
 - Preserve the speaker's actual message and tone.
 - Maintain context and attribution throughout.
 - Include important details, nuances, and implications.
+- More paragraphs for longer/denser content.
 
-## detailed_analysis (NEW - IN-DEPTH ONLY)
-- 3-5 analysis objects, each focusing on a major topic or theme.
+## detailed_analysis (IN-DEPTH ONLY)
+- Analysis objects, each focusing on a major topic or theme.
 - Provide deeper insights, implications, and context for each topic.
 - Go beyond surface-level summary to analyze WHY and HOW.
+- Include as many analysis sections as needed to cover all major themes.
 
-## key_quotes (NEW - IN-DEPTH ONLY)
-- 3-5 important verbatim quotes.
+## key_quotes (IN-DEPTH ONLY)
+- ALL important verbatim quotes from the video.
 - Include quotes from the speaker AND anyone they reference.
 - Provide context for each quote (when/why it was said).
 - Specify who said it (the speaker or someone they quoted).
 
-## arguments (NEW - IN-DEPTH ONLY)
-- 3-5 main arguments or claims made in the video.
+## arguments (IN-DEPTH ONLY)
+- ALL main arguments or claims made in the video.
 - For each: state the claim, provide the evidence/reasoning, and note any counterpoints or limitations mentioned.
 - Capture the logical structure of the speaker's argumentation.
 
@@ -320,22 +417,33 @@ Always provide a summary of the transcript provided, regardless of length or con
 Format the summary with clear sections and markdown formatting."""
 
         # Mode-specific configurations for dual-mode summarization
+        # =================================================================
+        # CHUNKING THRESHOLD UPDATE (February 2026):
+        # =================================================================
+        # With Gemini 2.5 Flash-Lite's 1M token context window:
+        # - ~11,700 tokens per hour of video (150 wpm * 60 min * 1.3 tokens/word)
+        # - 900K usable input tokens ÷ 11,700 = ~77 hours of video
+        # - Conservative threshold: 420 minutes (~7 hours) to leave safety margin
+        #
+        # This means 99%+ of YouTube videos can be processed in a single pass
+        # without chunking, eliminating fragmentation issues completely.
+        # =================================================================
         self.mode_configs = {
             "quick": {
                 "prompt": QUICK_SUMMARY_PROMPT_V3,
-                "chunking_threshold": 60,  # minutes
-                "chunk_size": 3000,        # words (~20 min per chunk)
-                "max_tokens": 2500
+                "chunking_threshold": 420,  # minutes (~7 hours) - increased from 60 min
+                "chunk_size": 50000,        # words (~5.5 hours per chunk if needed)
+                "max_tokens": 8000          # Gemini supports up to 65K output
             },
             "indepth": {
                 "prompt": INDEPTH_SUMMARY_PROMPT_V3,
-                "chunking_threshold": 30,  # minutes
-                "chunk_size": 1500,        # words (~10 min per chunk)
-                "max_tokens": 8000
+                "chunking_threshold": 420,  # minutes (~7 hours) - increased from 30 min
+                "chunk_size": 50000,        # words (~5.5 hours per chunk if needed)
+                "max_tokens": 16000         # More output tokens for comprehensive analysis
             }
         }
 
-        logger.info("AISummarizer initialized with dual-mode support (quick/indepth)")
+        logger.info(f"AISummarizer initialized with {MODEL_NAME} ({MODEL_PROVIDER}) - 1M token context")
     
     def _estimate_duration_minutes(self, transcript: str) -> float:
         """
@@ -569,9 +677,10 @@ Format the summary with clear sections and markdown formatting."""
             dict: Structured JSON summary (5 components for quick, 8 for indepth)
         """
         try:
-            # Use direct OpenAI API with mode-specific prompt and config
-            logger.info(f"Using single-pass summarization for {mode} mode (version: {PROMPT_VERSION}, tone: {tone})")
-            raw_response = self._generate_with_openai(transcript, title, mode, config, tone)
+            # Use Gemini API with mode-specific prompt and config
+            # Gemini 2.5 Flash-Lite provides 1M context for handling long videos without chunking
+            logger.info(f"Using single-pass summarization for {mode} mode (model: {MODEL_NAME}, version: {PROMPT_VERSION}, tone: {tone})")
+            raw_response = self._generate_with_gemini(transcript, title, mode, config, tone)
 
             # Parse JSON response with comprehensive error handling
             try:
@@ -679,8 +788,11 @@ Format the summary with clear sections and markdown formatting."""
 
     def _summarize_chunk(self, chunk: str, chunk_title: str) -> str:
         """
-        Summarize a single chunk of transcript.
+        Summarize a single chunk of transcript using Gemini.
         Returns a plain text summary (not JSON).
+
+        NOTE: With Gemini 2.5 Flash-Lite's 1M token context, chunking is rarely needed.
+        This method is kept for edge cases (10+ hour videos) and backward compatibility.
 
         Args:
             chunk: Transcript chunk to summarize
@@ -689,6 +801,10 @@ Format the summary with clear sections and markdown formatting."""
         Returns:
             str: Plain text summary of the chunk
         """
+        if not GEMINI_AVAILABLE:
+            logger.error("Gemini not available for chunk summarization")
+            return chunk[:500] + "..."  # Fallback to truncated chunk
+
         prompt = f"""
 Summarize the following transcript segment. Be concise and capture the main points.
 
@@ -703,45 +819,41 @@ Provide a 2-3 paragraph summary that captures the key information from this segm
 """
 
         try:
-            import requests
-
-            api_key = os.environ.get('OPENAI_API_KEY')
+            # Get API key
+            api_key = os.environ.get('GOOGLE_AI_API_KEY') or os.environ.get('GEMINI_API_KEY')
             if not api_key:
-                raise ValueError("OPENAI_API_KEY environment variable not set")
+                raise ValueError("GOOGLE_AI_API_KEY or GEMINI_API_KEY environment variable not set")
 
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
+            # Configure Gemini
+            genai.configure(api_key=api_key)
 
-            payload = {
-                "model": "gpt-4o-mini",
-                "messages": [
-                    {"role": "system", "content": "You are a concise summarization assistant."},
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.3,
-                "max_tokens": 1000
-            }
-
-            response = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=60
+            # Initialize model with simple configuration for chunk summarization
+            model = genai.GenerativeModel(
+                model_name=MODEL_NAME,
+                generation_config={
+                    "temperature": 0.3,
+                    "max_output_tokens": 1000
+                }
             )
 
-            if response.status_code != 200:
-                logger.error(f"OpenAI API error in chunk summarization: {response.status_code}")
-                return chunk[:500] + "..."  # Fallback to truncated chunk
+            # Generate chunk summary
+            response = model.generate_content(
+                f"You are a concise summarization assistant.\n\n{prompt}",
+                request_options={"timeout": 60}
+            )
 
-            result = response.json()
-            chunk_summary = result["choices"][0]["message"]["content"].strip()
+            # Extract text from response
+            if response.candidates and len(response.candidates) > 0:
+                chunk_summary = response.candidates[0].content.parts[0].text.strip()
+            else:
+                logger.error("Gemini API returned empty response for chunk")
+                return chunk[:500] + "..."
+
             logger.info(f"Generated chunk summary ({len(chunk_summary)} chars)")
             return chunk_summary
 
         except Exception as e:
-            logger.error(f"Error summarizing chunk: {e}")
+            logger.error(f"Error summarizing chunk with Gemini: {e}")
             return chunk[:500] + "..."  # Fallback to truncated chunk
 
     def _generate_with_langchain(self, transcript: str, title: str) -> str:
@@ -845,9 +957,12 @@ COMPREHENSIVE SUMMARY:
             logger.error(f"LangChain summarization failed: {e}")
             raise RuntimeError(f"LangChain summarization failed: {e}")
 
-    def _generate_with_openai(self, transcript: str, title: str, mode: str, config: dict, tone: str = "Objective") -> str:
+    def _generate_with_gemini(self, transcript: str, title: str, mode: str, config: dict, tone: str = "Objective") -> str:
         """
-        Generate summary using OpenAI API directly with mode-specific configuration.
+        Generate summary using Google Gemini API with mode-specific configuration.
+
+        This method uses Gemini 2.5 Flash-Lite for cost-effective, high-quality summarization.
+        With 1M token context window, most videos can be processed without chunking.
 
         Args:
             transcript: Full video transcript text
@@ -858,69 +973,83 @@ COMPREHENSIVE SUMMARY:
 
         Returns:
             str: Raw JSON string from AI (to be parsed by caller)
+
+        Raises:
+            ValueError: If API key is not set
+            RuntimeError: If Gemini API call fails
         """
+        if not GEMINI_AVAILABLE:
+            raise RuntimeError("Google Generative AI library not available. Install with: pip install google-generativeai")
+
         try:
-            import requests
-
-            api_key = os.environ.get('OPENAI_API_KEY')
+            # Get API key (support both GOOGLE_AI_API_KEY and GEMINI_API_KEY for flexibility)
+            api_key = os.environ.get('GOOGLE_AI_API_KEY') or os.environ.get('GEMINI_API_KEY')
             if not api_key:
-                raise ValueError("OPENAI_API_KEY environment variable not set")
+                raise ValueError("GOOGLE_AI_API_KEY or GEMINI_API_KEY environment variable not set")
 
-            # Increase transcript truncation length for comprehensive summaries
-            max_length = 15000
-            if len(transcript) > max_length:
-                logger.warning(f"Transcript truncated from {len(transcript)} to {max_length} chars for {mode} mode")
-                transcript = transcript[:max_length] + "..."
+            # Configure Gemini API
+            genai.configure(api_key=api_key)
+
+            # Estimate token count (conservative: 1.3 tokens per word)
+            word_count = len(transcript.split())
+            estimated_tokens = int(word_count * TOKENS_PER_WORD)
+
+            # Check if we're within context limits (leave room for output)
+            if estimated_tokens > MAX_INPUT_TOKENS:
+                logger.warning(f"Transcript ({estimated_tokens} tokens) exceeds max input ({MAX_INPUT_TOKENS}). Truncating...")
+                # Calculate max words to fit within token limit
+                max_words = int(MAX_INPUT_TOKENS / TOKENS_PER_WORD)
+                words = transcript.split()[:max_words]
+                transcript = ' '.join(words) + "... [TRUNCATED DUE TO LENGTH]"
+                logger.info(f"Truncated to {max_words} words (~{MAX_INPUT_TOKENS} tokens)")
 
             # Use mode-specific prompt from config and inject tone
             prompt_template = config["prompt"]
             prompt = prompt_template.format(title=title, transcript=transcript, tone=tone)
 
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
-
-            # Updated system prompt for JSON output
-            json_system_prompt = """You are a helpful assistant that analyzes video transcripts and returns structured JSON summaries.
-Always return valid JSON with no additional text before or after the JSON object.
-Ensure all JSON is properly formatted and escaped."""
-
-            # Use mode-specific temperature and max_tokens
+            # Configure model with appropriate settings
+            # Use mode-specific temperature
             temperature = 0.3 if mode == "quick" else 0.5
             max_tokens = config["max_tokens"]
 
-            payload = {
-                "model": "gpt-4o-mini",
-                "messages": [
-                    {"role": "system", "content": json_system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
+            # Initialize model with configuration
+            generation_config = {
                 "temperature": temperature,
-                "max_tokens": max_tokens
+                "max_output_tokens": max_tokens,
+                "response_mime_type": "application/json"  # Request JSON output
             }
 
-            logger.info(f"Sending request to OpenAI API for {mode} mode (model: {payload['model']}, max_tokens: {max_tokens}, temp: {temperature})")
-            response = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=90
+            model = genai.GenerativeModel(
+                model_name=MODEL_NAME,
+                generation_config=generation_config
             )
 
-            if response.status_code != 200:
-                error_msg = response.text
-                logger.error(f"OpenAI API error for {mode} mode: {response.status_code} - {error_msg}")
-                raise RuntimeError(f"OpenAI API error: {response.status_code}")
+            # System instruction for JSON output
+            system_instruction = """You are a helpful assistant that analyzes video transcripts and returns structured JSON summaries.
+Always return valid JSON with no additional text before or after the JSON object.
+Ensure all JSON is properly formatted and escaped."""
 
-            result = response.json()
-            raw_summary = result["choices"][0]["message"]["content"].strip()
+            logger.info(f"Sending request to Gemini API for {mode} mode (model: {MODEL_NAME}, max_tokens: {max_tokens}, temp: {temperature})")
+            logger.info(f"Transcript size: {len(transcript)} chars, ~{estimated_tokens} tokens")
+
+            # Generate content
+            response = model.generate_content(
+                f"{system_instruction}\n\n{prompt}",
+                request_options={"timeout": 180}  # 3 minute timeout for long videos
+            )
+
+            # Extract text from response
+            if response.candidates and len(response.candidates) > 0:
+                raw_summary = response.candidates[0].content.parts[0].text.strip()
+            else:
+                raise RuntimeError("Gemini API returned empty response")
+
             logger.info(f"Generated raw {mode} summary for '{title}' ({len(raw_summary)} chars)")
             return raw_summary
 
         except Exception as e:
-            logger.error(f"OpenAI API call failed for {mode} mode: {e}")
-            raise RuntimeError(f"OpenAI API call failed: {e}")
+            logger.error(f"Gemini API call failed for {mode} mode: {e}")
+            raise RuntimeError(f"Gemini API call failed: {e}")
     
 
     def _get_fallback_summary(self, transcript: str, title: str, existing_summary: str = None) -> Dict:

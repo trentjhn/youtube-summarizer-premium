@@ -1,0 +1,16 @@
+{
+  "name": "youtube-summarizer-complete",
+  "version": "1.0.0",
+  "description": "YouTube Video Summarizer with Gemini 2.5 Flash-Lite AI",
+  "scripts": {
+    "start": "concurrently -n backend,frontend -c blue,green \"npm run backend\" \"npm run frontend\"",
+    "backend": "cd youtube-summarizer && . venv/bin/activate && flask run --port 5001",
+    "frontend": "cd youtube-summarizer-frontend && npm run dev",
+    "stop": "pkill -f 'flask run' ; pkill -f 'vite' ; echo 'Servers stopped'"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  },
+  "keywords": ["youtube", "summarizer", "gemini", "ai"],
+  "license": "MIT"
+}

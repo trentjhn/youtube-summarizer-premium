@@ -1,13 +1,14 @@
 # YouTube Video Summarizer
 
-A comprehensive AI-powered application that transforms lengthy YouTube videos into detailed, readable summaries. Built with Flask, React, and OpenAI's GPT models, this MVP focuses on providing a simple yet powerful interface for extracting valuable insights from video content.
+A comprehensive AI-powered application that transforms lengthy YouTube videos into detailed, readable summaries. Built with Flask, React, and **Google Gemini 2.5 Flash-Lite**, this MVP focuses on providing a simple yet powerful interface for extracting valuable insights from video content.
 
 ## Features
 
 **Core MVP Functionality:**
 - Simple URL input interface for YouTube videos
 - Automatic transcript extraction with multiple fallback methods
-- AI-powered comprehensive summarization using OpenAI GPT models
+- AI-powered comprehensive summarization using **Google Gemini 2.5 Flash-Lite**
+- 1M token context window - handles videos up to ~12 hours without chunking
 - Visually pleasing summary display with markdown formatting
 - Real-time processing status and error handling
 
@@ -19,6 +20,24 @@ A comprehensive AI-powered application that transforms lengthy YouTube videos in
 - Docker containerization for easy deployment
 - Comprehensive test suite
 
+## AI Model Information
+
+**Current Model: Google Gemini 2.5 Flash-Lite** (as of February 2026)
+
+| Feature | Value |
+|---------|-------|
+| Input Cost | $0.10 per 1M tokens |
+| Output Cost | $0.40 per 1M tokens |
+| Context Window | 1,000,000 tokens |
+| Max Video Length | ~12.5 hours (single pass) |
+| Quality Benchmark | MMMU 72.9% |
+
+**Why Gemini 2.5 Flash-Lite?**
+- **33% cheaper** than GPT-4o-mini ($0.10/$0.40 vs $0.15/$0.60)
+- **8x larger context** window (1M vs 128K tokens)
+- **Better quality** benchmarks (MMMU 72.9% vs 59.4%)
+- **No chunking required** for 99%+ of YouTube videos
+
 ## Quick Start
 
 ### Prerequisites
@@ -26,7 +45,7 @@ A comprehensive AI-powered application that transforms lengthy YouTube videos in
 - Python 3.11+
 - Node.js 18+
 - Redis (optional, for caching)
-- OpenAI API key
+- **Google AI API key** (get one at https://makersuite.google.com/app/apikey)
 
 ### Installation
 
@@ -47,8 +66,11 @@ pnpm install
 
 3. **Environment configuration:**
 ```bash
-# Set your OpenAI API key
-export OPENAI_API_KEY="your-api-key-here"
+# Set your Google AI API key (get from https://makersuite.google.com/app/apikey)
+export GOOGLE_AI_API_KEY="your-api-key-here"
+
+# Alternative: GEMINI_API_KEY is also supported
+# export GEMINI_API_KEY="your-api-key-here"
 ```
 
 4. **Start services:**
@@ -99,7 +121,7 @@ The application follows a clean, modular architecture designed for scalability:
 **Services Integration:**
 - Redis for multi-layer caching (transcripts, summaries)
 - YouTube Transcript API for primary transcript extraction
-- OpenAI GPT-4 for comprehensive summarization
+- **Google Gemini 2.5 Flash-Lite** for comprehensive summarization (1M context window)
 - Fallback methods for robust transcript extraction
 
 ## Development
@@ -131,7 +153,8 @@ docker-compose -f docker-compose.yml up -d
 
 ### Environment Variables
 
-- `OPENAI_API_KEY` - Required for AI summarization
+- `GOOGLE_AI_API_KEY` - **Required** for AI summarization (get from https://makersuite.google.com/app/apikey)
+- `GEMINI_API_KEY` - Alternative name for Google AI API key (supported for backward compatibility)
 - `REDIS_HOST` - Redis server host (default: localhost)
 - `REDIS_PORT` - Redis server port (default: 6379)
 - `FLASK_ENV` - Flask environment (development/production)

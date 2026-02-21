@@ -16,7 +16,18 @@ requests==2.31.0
 beautifulsoup4==4.12.2
 yt-dlp>=2023.10.13
 
-# AI and OpenAI dependencies
+# =============================================================================
+# AI DEPENDENCIES (February 2026)
+# =============================================================================
+# PRIMARY: Google Gemini 2.5 Flash-Lite
+# - 33% cheaper than GPT-4o-mini ($0.10/$0.40 vs $0.15/$0.60 per 1M tokens)
+# - 1M token context window (vs 128K for GPT-4o-mini)
+# - Better quality benchmarks (MMMU 72.9% vs 59.4%)
+# - API Key: Set GOOGLE_AI_API_KEY environment variable
+# =============================================================================
+google-generativeai>=0.3.0
+
+# LEGACY: OpenAI/LangChain (kept for potential fallback support)
 openai>=1.10.0,<2.0.0
 langchain==0.1.0
 langchain-openai==0.0.5
